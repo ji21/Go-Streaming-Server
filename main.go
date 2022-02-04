@@ -1,8 +1,10 @@
 package main
 
 import (
+	"fmt"
+	"io"
 	"log"
-	"net/http"
+	"net/url"
 
 	"github.com/gorilla/websocket"
 )
@@ -12,37 +14,30 @@ var upgrader = websocket.Upgrader{
 	WriteBufferSize: 1024,
 }
 
-func reader(conn *websocket.Conn) {
+func readMessage(conn *websocket.Conn, done chan struct{}) {
+	defer close(done)
 	for {
-		messageType, message, err := conn.ReadMessage()
-		if err != nil {
-			log.Fatal(err)
+		_, message, err := conn.ReadMessage()
+		if err != nil || err == io.EOF {
+			log.Fatal("Error reading: ", err)
+			break
 		}
-		log.Println(message)
-
-		if err := conn.WriteMessage(messageType, message); err != nil {
-			log.Fatal(err)
-		}
+		fmt.Printf("recv: %s", message)
 	}
 }
 
-func wsHandler(w http.ResponseWriter, r *http.Request) {
-	upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	ws, err := upgrader.Upgrade(w, r, nil)
+var addr string = "localhost:7000"
+
+func main() {
+	u := url.URL{Scheme: "ws", Host: addr, Path: "/ws"}
+	log.Printf("connecting to %s", u.String())
+
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	defer conn.Close()
 	if err != nil {
 		log.Fatal(err)
 	}
-	reader(ws)
-}
-
-func setRoutes() {
-	http.HandleFunc("/ws", wsHandler)
-}
-
-func main() {
-	setRoutes()
-	log.Println("Starting server on port 8000")
-	if err := http.ListenAndServe(":8000", nil); err != nil {
-		log.Fatal(err)
-	}
+	done := make(chan struct{})
+	go readMessage(conn, done)
+	<-done
 }
